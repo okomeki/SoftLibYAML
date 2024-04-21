@@ -19,6 +19,7 @@ import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 import java.util.Collection;
+import java.util.Date;
 import java.util.Map;
 import net.siisise.bind.Rebind;
 import net.siisise.bind.format.ContentBind;
@@ -28,6 +29,7 @@ import net.siisise.lang.Bin;
 
 /**
  * CBOR出力
+ * RFC 8949
  */
 public class CBORFormat implements ContentBind<Packet> {
 
@@ -37,12 +39,12 @@ public class CBORFormat implements ContentBind<Packet> {
     }
 
     /**
-     * 
+     * コマンド組み.
      * @param major コマンド
-     * @param len 符号なしで処理する
+     * @param len 符号なしで処理するデータ長 またはデータ数
      * @return パケット
      */
-    private Packet cmd(int major, long len) {
+    Packet cmd(int major, long len) {
         Packet pac = new PacketA();
         major <<= 5;
         if ( len < 0 || len >= 0x100000000l) {
@@ -63,13 +65,23 @@ public class CBORFormat implements ContentBind<Packet> {
         return pac;
     }
     
-    private Packet tag(long tag) {
+    /**
+     * 拡張タグ タグのみ.
+     * null, undefinded 以外のデータの前に複数タグを挿入できるのかも.
+     * @param tag 拡張タグ番号
+     * @return タグ
+     */
+    public Packet tag(long tag) {
         return cmd(6,tag);
     }
     
     @Override
     public Packet nullFormat() {
         return cmd(7, 0x16);
+    }
+    
+    public Packet undefinedFormat() {
+        return cmd(7, 0x17);
     }
 
     @Override
@@ -80,6 +92,13 @@ public class CBORFormat implements ContentBind<Packet> {
 //    static final BigInteger LONG_MIN = BigInteger.valueOf(Long.MIN_VALUE);
     static final BigInteger LONG_MAX = BigInteger.ONE.shiftLeft(1).pow(64);
 
+    /**
+     * 整数 major 0 1、浮動小数点 major 7
+     * 拡張 2, 3 BigNum
+     * 
+     * @param num
+     * @return 
+     */
     @Override
     public Packet numberFormat(Number num) {
         if ( num instanceof BigInteger ) {
@@ -119,6 +138,11 @@ public class CBORFormat implements ContentBind<Packet> {
         throw new UnsupportedOperationException("Not supported yet.");
     }
 
+    /**
+     * 文字列 をCBOR text string 変換.
+     * @param str 文字列
+     * @return CBOR text string
+     */
     @Override
     public Packet stringFormat(String str) {
         byte[] data = str.getBytes(StandardCharsets.UTF_8);
@@ -127,48 +151,85 @@ public class CBORFormat implements ContentBind<Packet> {
         return pac;
     }
 
+    /**
+     * major 5 Map系 CBOR map 変換.
+     * @param map
+     * @return CBOR map
+     */
     @Override
     public Packet mapFormat(Map map) {
         Packet pac = new PacketA();
+        int size = map.size();
         for ( Object es : map.entrySet() ) {
             Map.Entry e = (Map.Entry)es;
             pac.write(Rebind.valueOf(e.getKey(), this));
             pac.write(Rebind.valueOf(e.getValue(), this));
         }
-        pac.backWrite(cmd(5,pac.length()));
-        return pac;
-    }
-
-    @Override
-    public Packet collectionFormat(Collection col) {
-        Packet pac = (Packet) col.parallelStream().map(v -> { return (Packet)Rebind.valueOf(v, this); }).collect(PacketA::new,
-                (a, b) -> { ((Packet)a).write((Packet)b); },
-                (c, d) -> { ((Packet)c).write((Packet)d); } );
-        pac.backWrite(cmd(4,pac.length()));
+        pac.backWrite(cmd(5,size));
         return pac;
     }
 
     /**
-     * エポックタイムからの秒数.
-     * ミリ秒は切り捨て.
-     * 
-     * @param cal Java基準 ミリ秒 
-     * @return 
+     * major 4 Collection CBOR array 変換.
+     * @param col
+     * @return CBOR array
      */
     @Override
-    public Packet datetimeFormat(Calendar cal) {
-        Packet pac = tag(1);
-        pac.write(numberFormat(cal.getTimeInMillis() / 1000));
+    public Packet collectionFormat(Collection col) {
+        int size = col.size();
+        Packet pac = (Packet) col.parallelStream().map(v -> { return (Packet)Rebind.valueOf(v, this); }).collect(PacketA::new,
+                (a, b) -> { ((Packet)a).write((Packet)b); },
+                (c, d) -> { ((Packet)c).write((Packet)d); } );
+        pac.backWrite(cmd(4, size));
         return pac;
     }
 
+    /**
+     * エポックタイムからの秒数を使っておく.
+     * 拡張 0 date/time string
+     * 拡張 1 Epoch-based date/time
+     *       (ToDo:とりあえず)ミリ秒は切り捨て.
+     * 
+     * @param cal Java基準 ミリ秒 
+     * @return CBOR number
+     */
+    @Override
+    public Packet datetimeFormat(Calendar cal) {
+        long t = cal.getTimeInMillis();
+        int ms = cal.get(Calendar.MILLISECOND);
+        Packet pac;
+        if ( ms == 0 ) { // ミリ秒なし
+            pac = tag(1);
+            pac.write(numberFormat(t / 1000));
+        } else {
+            pac = tag(0);
+            java.text.DateFormat df = java.text.DateFormat.getDateTimeInstance();
+            Date date = new Date();
+            date.setTime(cal.getTimeInMillis());
+            df.format(date);
+            pac.write(stringFormat(""));
+            throw new UnsupportedOperationException();
+        }
+        return pac;
+    }
+
+    /**
+     * バイト列. byte string.
+     * @param data
+     * @return CBOR byte string
+     */
     @Override
     public Packet byteArrayFormat(byte[] data) {
         Packet pac = cmd(2, data.length);
         pac.write(data);
         return pac;
-    }
-    
+    }   
+
+    /**
+     * text string として扱う?
+     * @param chars 文字列
+     * @return CBOR text string
+     */
     @Override
     public Packet charArrayFormat(char[] chars) {
         String s = String.valueOf(chars);
