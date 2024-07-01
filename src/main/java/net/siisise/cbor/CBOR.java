@@ -24,9 +24,11 @@ import java.util.List;
 import java.util.Map;
 import net.siisise.bind.Rebind;
 import net.siisise.block.ReadableBlock;
+import net.siisise.io.BASE64;
 import net.siisise.io.Input;
 import net.siisise.io.Packet;
 import net.siisise.io.PacketA;
+import net.siisise.lang.Bin;
 
 /**
  * RFC 8949 CBOR. バイナリパック Parse系
@@ -43,14 +45,15 @@ public class CBOR {
     public static Object parse(byte[] src) {
         return parse(ReadableBlock.wrap(src));
     }
-/*
+
+    /*
     public static class UnknownLengthException extends RuntimeException {
 
         private UnknownLengthException(String n) {
             super(n);
         }
     }
-*/
+     */
     /**
      * 64bitまで可能な長さ.
      *
@@ -99,6 +102,7 @@ public class CBOR {
 
     /**
      * 基本型
+     *
      * @param in
      * @return 抽出データ
      */
@@ -108,7 +112,7 @@ public class CBOR {
         switch (code >> 5) {
             case 0: // 符号無し整数
                 return parseNumber(len);
-            case 1: // 不
+            case 1: // 負の整数
                 return parseUnSigned(len);
             case 2: // bin 大きいものを扱うときはPacket形式に変えるかも
                 return parseBin(len, in);
@@ -125,14 +129,26 @@ public class CBOR {
                 return other(code & 0x1f, len, in);
         }
     }
-    
+
+    /**
+     * 0 正の整数.
+     *
+     * @param len
+     * @return long または BigInteger
+     */
     private static Number parseNumber(long len) {
         if (len < 0) {
             return BigInteger.valueOf(len).add(BigInteger.ONE.shiftLeft(64));
         }
         return len;
     }
-    
+
+    /**
+     * 1 負の整数.
+     *
+     * @param len
+     * @return long または BigInteger
+     */
     private static Number parseUnSigned(long len) {
         if (len < 0) {
             BigInteger b = BigInteger.valueOf(len).add(BigInteger.ONE.shiftLeft(64));
@@ -143,7 +159,8 @@ public class CBOR {
 
     /**
      * 2 bin 大きいものを扱うときはPacket形式に変えるかも
-     * @param len 
+     *
+     * @param len
      */
     private static byte[] parseBin(long len, Input in) {
         if (len == -1) { // nest
@@ -159,7 +176,7 @@ public class CBOR {
         in.read(bin);
         return bin;
     }
-    
+
     private static String parseString(long len, Input in) {
         PacketA ret = new PacketA();
         if (len == -1) {
@@ -175,7 +192,14 @@ public class CBOR {
             return new String(str, StandardCharsets.UTF_8);
         }
     }
-    
+
+    /**
+     * List / Array っぽいもの.
+     *
+     * @param len 数
+     * @param in
+     * @return List
+     */
     private static List parseList(long len, Input in) {
         List list = new ArrayList();
         if (len == -1) {
@@ -191,7 +215,7 @@ public class CBOR {
         }
         return list;
     }
-    
+
     private static Map parseMap(long len, Input in) {
         Map obj = new LinkedHashMap();
         if (len == -1) {
@@ -212,63 +236,82 @@ public class CBOR {
     }
 
     /**
-     * タグ付けされた型
-     * Section 3.4.
-     * RFC 7049
+     * 6 タグ付けされた型
+     *
+     * Section 3.4. RFC 7049
+     *
      * @param tag
      * @param in
-     * @return 
+     * @return
      */
     static Object tag(long tag, Input in) {
         Object src = parse(in);
-        switch ((int)tag) {
-            case 0: // text string Standatd date/time string Section 3.4.1.
-//                return ;
-            default:
-                return src; // 知らない型は見なかったことにすればいいのか?
-//                throw new UnsupportedOperationException();
+        if (tag >= 0 && tag <= Integer.MAX_VALUE) {
+            switch ((int) tag) {
+                case (int) CBORTag.EXPECTED_CONVERSION_BASE64URL:
+                    BASE64 b64url = new BASE64(BASE64.URL, 0);
+                    src = b64url.encode((byte[]) src);
+                    break;
+                case (int) CBORTag.EXPECTED_CONVERSION_BASE64:
+                    BASE64 b64 = new BASE64(BASE64.BASE64, 0);
+                    src = b64.encode((byte[]) src);
+                    break;
+                case (int) CBORTag.EXPECTED_CONVERSION_BASE16:
+                    src = Bin.toUpperHex((byte[]) src);
+                    break;
+            }
         }
+
+        return new CBORTag(tag, src);
     }
-    
+
+    /**
+     * 7. その他分類.
+     *
+     * @param code
+     * @param len
+     * @param in
+     * @return
+     */
     private static Object other(int code, long len, Input in) {
-                switch (code & 0x1f) {
-                    // 0..23 1 byte
-                    // 0..19 unassigned
-                    case 20:  // 20
-                        return false;
-                    case 21:  // 21
-                        return true;
-                    case 22:  // 22
-                        return null;
-                    case 23:  // 23
-                        return UNDEFINED;
-                    // 24 - 2 byte
-                    case 24:
-                        // 24..31 reserved
-                        // 32..255 unassigned
-                        if ( len < 24 ) {
-                            throw new java.lang.IllegalStateException(); // ない
-                        } else if ( len < 32 ) {
-                            throw new UnsupportedOperationException("reserved");
-                        } else {
-                            throw new UnsupportedOperationException("unassigned");
-                        }
-                    case 25: // IEEE 754 16bit float Appendix D
-                        return Binary16.binary16BitsToFloat((short) len);
-                    case 26: // IEEE 754 Single-Percision Float (32 bits follow) 
-                        return Float.intBitsToFloat((int) len);
-                    case 27: // IEEE 754 Single-Percision Float (64 bits follow)
-                        return Double.longBitsToDouble(len);
-                    case 0x1c: // 28
-                    case 0x1d: // 29
-                    case 0x1e: // 30
-                        throw new UnsupportedOperationException("reserved");
-                    case 0x1f: // 31
-                        return BREAK;
-                    default: // 0 ... 19
-                        throw new UnsupportedOperationException("unassigned");
+        switch (code & 0x1f) {
+            // 0..23 1 byte
+            // 0..19 unassigned
+            case 20:  // 20
+                return false;
+            case 21:  // 21
+                return true;
+            case 22:  // 22
+                return null;
+            case 23:  // 23
+                return UNDEFINED;
+            // 24 - 2 byte
+            case 24:
+                // 24..31 reserved
+                // 32..255 unassigned
+                if (len < 24) {
+                    throw new java.lang.IllegalStateException(); // ない
+                } else if (len < 32) {
+                    throw new UnsupportedOperationException("reserved");
+                } else {
+                    throw new UnsupportedOperationException("unassigned");
                 }
-        
+            case 25: // IEEE 754 16bit float Appendix D
+                return Binary16.binary16BitsToFloat((short) len);
+            case 26: // IEEE 754 Single-Percision Float (32 bits follow) 
+                return Float.intBitsToFloat((int) len);
+            case 27: // IEEE 754 Single-Percision Float (64 bits follow)
+                return Double.longBitsToDouble(len);
+            case 0x1c: // 28
+            case 0x1d: // 29
+            case 0x1e: // 30
+                throw new UnsupportedOperationException("reserved");
+            case 0x1f: // 31
+                return BREAK;
+            default: // 0 ... 19
+                throw new UnsupportedOperationException("unassigned");
+        }
+
     }
 
     public static byte[] build(Object obj) {

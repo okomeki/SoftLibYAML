@@ -110,7 +110,37 @@ public class CBORFormatTest {
         byte[] expResult = new byte[] {00};
         Packet result = instance.numberFormat(num);
         assertArrayEquals(expResult, result.toByteArray());
+
+        num = Integer.valueOf(10);
+        expResult = new byte[] {0x0a};
+        result = instance.numberFormat(num);
+        assertArrayEquals(expResult, result.toByteArray());
+
+        num = Integer.valueOf(100);
+        expResult = new byte[] {0x18,0x64};
+        result = instance.numberFormat(num);
+        assertArrayEquals(expResult, result.toByteArray());
+
+        num = Integer.valueOf(-1);
+        expResult = new byte[] {0x20};
+        result = instance.numberFormat(num);
+        assertArrayEquals(expResult, result.toByteArray());
     }
+    
+    /**
+     * 浮動小数点系.
+     */
+    @Test
+    public void testFloat() {
+        System.out.println("浮動小数点");
+        Number num = Double.valueOf("0.0");
+        byte[] expResult = Bin.toByteArray("f90000");
+        CBORFormat instance = new CBORFormat();
+        Packet result = instance.numberFormat(num);
+        byte[] binResult = result.toByteArray();
+        System.out.println(Bin.toHex(binResult));
+        assertArrayEquals(expResult, binResult);
+    } 
 
     /**
      * Test of stringFormat method, of class CBORFormat.
@@ -118,10 +148,20 @@ public class CBORFormatTest {
     @Test
     public void testStringFormat() {
         System.out.println("stringFormat");
-        String str = "abcde";
         CBORFormat instance = new CBORFormat();
+        String str = "abcde";
         byte[] expResult = Bin.toByteArray("656162636465");
         Packet result = instance.stringFormat(str);
+        assertArrayEquals(expResult, result.toByteArray());
+
+        str = "z";
+        expResult = Bin.toByteArray("617a");
+        result = instance.stringFormat(str);
+        assertArrayEquals(expResult, result.toByteArray());
+
+        str = "aa";
+        expResult = new byte[] { 0x62,0x61,0x61};
+        result = instance.stringFormat(str);
         assertArrayEquals(expResult, result.toByteArray());
     }
 
@@ -153,6 +193,14 @@ public class CBORFormatTest {
         byte[] expResult = Bin.toByteArray("82016161");
         Packet result = instance.collectionFormat(col);
         byte[] resultBin = result.toByteArray();
+        System.out.println(Bin.toHex(resultBin));
+        assertArrayEquals(expResult, resultBin);
+        
+        col = new ArrayList();
+        col.add(100);
+        expResult = Bin.toByteArray("811864");
+        result = instance.collectionFormat(col);
+        resultBin = result.toByteArray();
         System.out.println(Bin.toHex(resultBin));
         assertArrayEquals(expResult, resultBin);
     }
