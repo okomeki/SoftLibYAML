@@ -1,5 +1,5 @@
 /*
- * Copyright 2023 okome.
+ * Copyright 2024 okome.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,34 +13,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.siisise.yaml;
+package net.siisise.toml;
 
-import net.siisise.bind.Rebind;
+import net.siisise.io.Input;
 
 /**
- *
+ * 
  */
-public class YAML {
-
-    public static YAML load() {
-        throw new UnsupportedOperationException();
-    }
-
-    public static YAML safeLoad() {
-        throw new UnsupportedOperationException();
+public class TOML {
+    
+    
+    /**
+     * 
+     * @deprecated 
+     * @param in
+     * @return 
+     */
+    @Deprecated
+    public Object parse(Input in) {
+        throw new UnsupportedOperationException("yet.");
     }
 
     /**
-     * loadSequence ?.
-     * 1つのファイルに複数のドキュメントが含められているとか.
-     *
-     * @return
+     * sequence 型に対応.
+     * @param in
+     * @return 
      */
-    public static YAML[] loadStream() {
-        throw new UnsupportedOperationException();
+    public Object parseSequence(Input in) {
+        throw new UnsupportedOperationException("yet.");
     }
-
-    public String build(Object obj) {
-        return Rebind.valueOf(obj, new YAMLFormat());
-    }
+    
 }
